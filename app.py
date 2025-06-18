@@ -7,7 +7,6 @@ from urllib.parse import parse_qs
 import traceback
 import re
 import os
-import json
 
 CONTACT_STATE = "contact_conversation"
 
@@ -68,38 +67,6 @@ def status_row(label, value, color):
             }
         ]
     }
-
-def get_google_credentials():
-    """ดึง credentials จาก environment variables"""
-    try:
-        creds_json = os.getenv('GOOGLE_CREDENTIALS')
-        if not creds_json:
-            raise ValueError("GOOGLE_CREDENTIALS environment variable not set")
-        
-        creds_dict = json.loads(creds_json)
-        scope = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-        return creds
-    except Exception as e:
-        print("❌ Error getting Google credentials:", e)
-        traceback.print_exc()
-        return None
-
-def get_google_sheet():
-    """เชื่อมต่อกับ Google Sheet"""
-    try:
-        creds = get_google_credentials()
-        if not creds:
-            return None
-            
-        client = gspread.authorize(creds)
-        sheet_name = os.getenv('GOOGLE_SHEET_NAME', 'Tickets')
-        sheet = client.open(sheet_name).sheet1
-        return sheet
-    except Exception as e:
-        print("❌ Error connecting to Google Sheet:", e)
-        traceback.print_exc()
-        return None
 
 @app.route("/", methods=["GET"])
 def home():
@@ -494,10 +461,11 @@ def handle_confirmation(event):
 def save_contact_message(user_id, message, is_user=False, is_system=False):
     """บันทึกข้อความใน Textbox พร้อมระบุประเภท"""
     try:
-        sheet = get_google_sheet()
-        if not sheet:
-            return False
-            
+        scope = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
+        creds = ServiceAccountCredentials.from_json_keyfile_name('credentials.json', scope)
+        client = gspread.authorize(creds)
+        sheet = client.open("Tickets").sheet1
+        
         # หาแถวที่มี User ID นี้อยู่
         cell = sheet.find(str(user_id))
         if not cell:
@@ -1002,12 +970,12 @@ def show_ticket_details(reply_token, ticket_id, user_id=None):
         reply(reply_token, "⚠️ เกิดข้อผิดพลาดในการดึงข้อมูล Ticket")
 
 def save_helpdesk_to_sheet(ticket_id, user_id, email, name, phone, department, report_time, appointment_time, issue_text):
-    """บันทึก Helpdesk Ticket ลง Google Sheet"""
     try:
-        sheet = get_google_sheet()
-        if not sheet:
-            return False
-            
+        scope = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
+        creds = ServiceAccountCredentials.from_json_keyfile_name('credentials.json', scope)
+        client = gspread.authorize(creds)
+        sheet = client.open("Tickets").sheet1
+        
         # ตรวจสอบว่า Ticket ID ไม่ซ้ำ
         existing_tickets = sheet.col_values(1)
         if ticket_id in existing_tickets:
@@ -1746,11 +1714,15 @@ def generate_ticket_id():
     return f"TICKET-{now.strftime('%Y%m%d%H%M%S')}"
 
 def save_ticket_to_sheet(user_id, data, ticket_id):
-    """บันทึก Ticket ลง Google Sheet"""
     try:
-        sheet = get_google_sheet()
-        if not sheet:
-            return False
+        scope = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
+        creds = ServiceAccountCredentials.from_json_keyfile_name('credentials.json', scope)
+        client = gspread.authorize(creds)
+        sheet = client.open("Tickets").sheet1
+
+        # ตรวจสอบ header ของ sheet ก่อน
+        headers = sheet.row_values(1)
+        print("Sheet headers:", headers)
 
         # แปลงเบอร์โทรศัพท์เป็นข้อความและเติม ' นำหน้าเพื่อให้ Google Sheets รู้ว่าเป็นข้อความ
         phone_number = format_phone_number(data['phone'])
@@ -2072,12 +2044,12 @@ def handle_user_request(reply_token, user_id, request_text):
     send_reply_message(reply_token, [confirm_msg])
 
 def save_appointment_with_request(ticket_id, user_id, email, name, phone, department, appointment_datetime, request_text):
-    """บันทึกการนัดหมายพร้อมความประสงค์ลง Google Sheet"""
     try:
-        sheet = get_google_sheet()
-        if not sheet:
-            return False
-            
+        scope = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
+        creds = ServiceAccountCredentials.from_json_keyfile_name('credentials.json', scope)
+        client = gspread.authorize(creds)
+        sheet = client.open("Tickets").sheet1
+        
         # ตรวจสอบว่า Ticket ID ไม่ซ้ำ
         existing_tickets = sheet.col_values(1)
         if ticket_id in existing_tickets:
@@ -2226,12 +2198,11 @@ def save_appointment_to_sheet(ticket_id, appointment_datetime):
         return False
 
 def get_latest_ticket(user_id):
-    """ดึง Ticket ล่าสุดของผู้ใช้"""
     try:
-        sheet = get_google_sheet()
-        if not sheet:
-            return None
-            
+        scope = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
+        creds = ServiceAccountCredentials.from_json_keyfile_name('credentials.json', scope)
+        client = gspread.authorize(creds)
+        sheet = client.open("Tickets").sheet1
         data = sheet.get_all_records()
         
         user_tickets = [r for r in data if str(r.get('User ID', '')).strip() == str(user_id).strip()]
@@ -2261,12 +2232,11 @@ def is_valid_email(email):
     return re.fullmatch(pattern, email) is not None
 
 def check_existing_email(email):
-    """ตรวจสอบว่าอีเมลนี้มีการสมัครสมาชิกแล้วหรือไม่"""
     try:
-        sheet = get_google_sheet()
-        if not sheet:
-            return False
-            
+        scope = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
+        creds = ServiceAccountCredentials.from_json_keyfile_name('credentials.json', scope)
+        client = gspread.authorize(creds)
+        sheet = client.open("Tickets").sheet1
         data = sheet.get_all_records()
         
         for row in data:
@@ -2282,10 +2252,10 @@ def check_existing_email(email):
 def check_existing_user(user_id):
     """ตรวจสอบว่าผู้ใช้มีข้อมูลในระบบและมีการเข้าสู่ระบบแล้ว"""
     try:
-        sheet = get_google_sheet()
-        if not sheet:
-            return False
-            
+        scope = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
+        creds = ServiceAccountCredentials.from_json_keyfile_name('credentials.json', scope)
+        client = gspread.authorize(creds)
+        sheet = client.open("Tickets").sheet1
         data = sheet.get_all_records()
         
         for row in data:
@@ -2567,10 +2537,10 @@ def send_helpdesk_summary(user_id, ticket_id, report_time, issue_text, email, na
 def get_all_user_tickets(user_id):
     """ดึง Ticket ทั้งหมดของผู้ใช้จาก Google Sheets"""
     try:
-        sheet = get_google_sheet()
-        if not sheet:
-            return None
-            
+        scope = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
+        creds = ServiceAccountCredentials.from_json_keyfile_name('credentials.json', scope)
+        client = gspread.authorize(creds)
+        sheet = client.open("Tickets").sheet1
         data = sheet.get_all_records()
         
         user_tickets = []
